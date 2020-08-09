@@ -18,13 +18,12 @@ class App extends Component {
   render() {
     return (
       <div className="App">
+
         <TFBodyPix videoSourced={this.setVideoSource}/>
-                  
+
         <OTChat credentials = {this.props.credentials} 
                 videoSource = {this.state.videoSource} 
                 changedMediaSource = {this.setUserMediaSource}/>
-
-        
 
       </div>
     );

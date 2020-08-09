@@ -1,5 +1,6 @@
 import React, { Component } from 'react';
 import * as bodyPix from '@tensorflow-models/body-pix'
+import * as partColorScales from './part_color_scales';
 import {drawKeypoints, drawSkeleton} from './demo_util';
 
 export default class TFBodyPix extends Component {
@@ -14,10 +15,15 @@ export default class TFBodyPix extends Component {
       canvas: null,
       userMediaSource: null,
       poseTracking: false,
+      partMap: false,
+      prevPartMap: null,
       bodyPixEnabled: false,
-      segmentType: 'blur'
+      segmentType: 'blur',
+      mouseX: 0,
+      mouseY: 0
     };
     this.bodySegmentationFrame = this.bodySegmentationFrame.bind(this);
+    // this.onMouseClick = this.onMouseClick.bind(this);
   }
 
 // Configure Webcams
@@ -126,13 +132,34 @@ export default class TFBodyPix extends Component {
       maskBackground: true,
       opacity: 0.9,
       backgroundBlurAmount: 9,
-      maskBlurAmount: 10,
-      edgeBlurAmount: 10
+      maskBlurAmount: 8,
+      edgeBlurAmount: 8
+    },
+    partMap: {
+      colorScale: 'rainbow',
+      effect: 'partMap',
+      segmentationThreshold: 0.5,
+      opacity: 0.9,
+      blurBodyPartAmount: 3,
+      bodyPartEdgeBlurAmount: 3,
     }
   };
 
   async estimateSegmentation() {
     return await this.state.net.segmentMultiPerson(this.state.video, {
+      internalResolution: this.guiState.input.internalResolution,
+      segmentationThreshold: this.guiState.segmentation.segmentationThreshold,
+      maxDetections: this.guiState.multiPersonDecoding.maxDetections,
+      scoreThreshold: this.guiState.multiPersonDecoding.scoreThreshold,
+      nmsRadius: this.guiState.multiPersonDecoding.nmsRadius,
+      numKeypointForMatching: this.guiState.multiPersonDecoding.numKeypointForMatching,
+      refineSteps: this.guiState.multiPersonDecoding.refineSteps
+    });
+  }
+
+  async estimatePartSegmentation() {
+
+    return await this.state.net.segmentMultiPersonParts(this.state.video, {
       internalResolution: this.guiState.input.internalResolution,
       segmentationThreshold: this.guiState.segmentation.segmentationThreshold,
       maxDetections: this.guiState.multiPersonDecoding.maxDetections,
@@ -151,9 +178,11 @@ export default class TFBodyPix extends Component {
         if (flipHorizontally) {
           pose = bodyPix.flipPoseHorizontal(pose, personSegmentation.width);
         }
-        
+
+        console.log("pose", pose.keypoints)
         drawKeypoints(pose.keypoints, 0.1, ctx);
         drawSkeleton(pose.keypoints, 0.1, ctx);
+
       });
     } else {
       personOrPersonPartSegmentation.allPoses.forEach(pose => {
@@ -179,13 +208,12 @@ export default class TFBodyPix extends Component {
   }
 
   async bodySegmentationFrame(){
-
     const multiPersonSegmentation = await this.estimateSegmentation();
     const flipHorizontally = true;
     const ctx = this.state.canvas.getContext('2d');
 
     switch (this.state.segmentType){
-
+      
       case 'blur':
 
         bodyPix.drawBokehEffect(this.state.canvas, 
@@ -198,6 +226,7 @@ export default class TFBodyPix extends Component {
       break;
       
       case 'mask':
+
         const foregroundColor = {r: 255, g: 255, b: 255, a: 0};
         const backgroundColor = {r: 0, g: 0, b: 0, a: 1000};
         const mask = bodyPix.toMask(
@@ -211,16 +240,30 @@ export default class TFBodyPix extends Component {
                           this.guiState.segmentation.maskBlurAmount, 
                           flipHorizontally);
         break;
+      
+        case 'partMap':
+          const multiPersonPartSegmentation = await this.estimatePartSegmentation();
+          const coloredPartImageData = bodyPix.toColoredPartMask(
+              multiPersonPartSegmentation,
+              partColorScales[this.guiState.partMap.colorScale]);
+          const maskBlurAmount = 0;
+          bodyPix.drawMask(this.state.canvas, 
+                          this.state.video, 
+                          coloredPartImageData, 
+                          this.guiState.partMap.opacity,
+                          maskBlurAmount, 
+                          flipHorizontally);
+        break;
 
         default:
         break;
 
     }
 
-  
     if (this.state.poseTracking === true){
       this.drawPoses(multiPersonSegmentation, flipHorizontally, ctx);
     };
+
     requestAnimationFrame(this.bodySegmentationFrame);
   }  
 
@@ -269,26 +312,32 @@ export default class TFBodyPix extends Component {
     });
   };
 
-  togglesegmentType = () => {
 
-    if (this.state.segmentType === 'blur'){
-      this.setState({
-        segmentType: 'mask'
-      });
-    } else {
-      this.setState({
-        segmentType: 'blur'
-      });
-    }
-  }
+  togglesegmentType = (event) =>{
+    this.setState({
+      segmentType: event.target.value
+    });
+  };
+
+  // onMouseClick(e) {
+  //   console.log("entered")
+  //   this.setState({ 
+  //     mouseX: e.nativeEvent.offsetX, 
+  //     mouseY: e.nativeEvent.offsetY
+  //   });
+  //   console.log('mouse locationX', this.state.mouseX)
+  //   console.log('mouse locationY', this.state.mouseY)
+  // }
 
   render() {
-    
+
     return (
       <div>
         <div>
-          <video id="video" style={{display: "none" }}></video>
-          <canvas id="output" style={{display: "none" }}></canvas>
+        {/* onMouseMove={this.onMouseClick} */}
+          <video id="video" style={{display: "none" }} ></video>
+          <canvas id="output" style={{display: "none"}} ></canvas>
+
           <button 
             onClick = {() => {this.toggleBodyPix() ; this.props.videoSourced(this.state.stream) }}>
             {this.state.stream === true ? 'Disable' : 'Enable'} Background Subtraction
@@ -296,11 +345,15 @@ export default class TFBodyPix extends Component {
 
           {this.state.bodyPixEnabled && 
             <div>
-              <button onClick = { this.togglesegmentType }> {this.state.segmentType === 'blur' ? 'Mask' : 'Blur'} </button>
+
+              <select value={this.state.segmentType} onChange={this.togglesegmentType}>
+                <option value="mask">Mask</option>
+                <option value="blur">Blur</option>
+                <option value="partMap">Part Map</option>
+              </select>
               <button onClick = { this.togglePose }> {this.state.poseTracking ? 'Stop' : 'Start'} Tracking Poses </button> 
             </div>
           }
-
         </div>
       </div>
     );  
