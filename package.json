@@ -12,7 +12,7 @@
     "opentok-react": "^0.7.0",
     "react": "^16.13.1",
     "react-dom": "^16.13.1",
-    "react-scripts": "1.0.16",
+    "react-scripts": "5.0.1",
     "stats.js": "0.17.0"
   },
   "homepage": "http://ZiningW.github.io/openTok-TF-Background-Subtraction",
